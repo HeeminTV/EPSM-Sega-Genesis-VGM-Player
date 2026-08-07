@@ -1,0 +1,12 @@
+*
+!*/
+!*.*
+
+*.vgm
+*.vgz
+*.gz
+*.bin
+*.nes
+*.mlb
+*.exe
+ignore\
