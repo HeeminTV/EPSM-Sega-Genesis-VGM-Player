@@ -15,7 +15,8 @@
 enum 0
 		data_ptr: .dsb 3
 		wait_msb: .dsb 1
-		zp0fbyte: .dsb 1
+		zp07byte: .dsb 1
+		msbprev: .dsb 1
 ende
 
 ; ======================================================================================================
@@ -119,17 +120,19 @@ RESET:	LDX #0
 
 		STY data_ptr+0
 		STY data_ptr+2
+		
+		STY msbprev
 	
 		LDA #$29
 		STA $401C
 		LDA #$80
 		STA $401D
 		STA data_ptr+1
-		LDA #$08
+		LDA #$09
 		STA $4015
-		LDA #$0F
-		STA zp0fbyte
 		STA $400F
+		LDA #$07
+		STA zp07byte
 		
 		STY $8000
 		
@@ -155,9 +158,11 @@ ENDM
 
 .align 256,$FF
 		; 55 cycles per $00/$01 commands
-		; 55 cycles per $02 command
-		; 40 cycles per $04-$7F commands
+		; 60 cycles per $02 command
+		; 90 cycles per $03 command
+		; 40 cycles per $05-$7F commands
 		; $80-$FF = wait for `(param-128)*5+25` cycles
+		
 play_loop:
 		LAX (data_ptr),Y		; 5
 		BPL @regwrites
@@ -178,16 +183,18 @@ play_loop:
 		BEQ @ym2				; 2
 
 		CMP #3					; 2+2
-		BCC @noi
-		BEQ @end				; 2
+		BCC @noi_j
+		BEQ @pul_j				; 2
 		
-		NOP						; 2+2
-		NOP						; 2
+		CMP #4					; 2+2
+		BEQ @end_j
 
 		STA $4011				; 2+4
 		BNE play_loop ; always	; 3
 		
-@end:
+@noi_j:	JMP @noi
+@pul_j: JMP @pul
+@end_j:	JMP @end
 		
 @ym1:	NOP
 		LDA (data_ptr),Y
@@ -211,15 +218,46 @@ play_loop:
 		LDA lsr4ora30tbl,X
 		STA $400C
 		TXA
-		AND zp0fbyte
+		AND #$0F
 		STA $400E
 		JMP play_loop
+		
+@pul:	
+		; first byte : VVVV1PPP
+		; second byte: PPPPPPPP
+		LAX (data_ptr),Y		; 5
+		INY_check				; 5
+		
+		AND zp07byte			; 3
+		CMP msbprev				; 3
+		BEQ @same
+
+		STA msbprev				; 2+3
+		STX $4003				; 4
+		BNE @wrdone ; always	; 3
+
+@same:	PHA						; 3+3
+		PLA						; 4
+		NOP						; 2
+
+@wrdone:
+
+		LDA lsr4ora30tbl,X		; 4
+		STA $4000				; 4
+		LDA (data_ptr),Y		; 5
+		INY_check				; 5
+		STA $4002				; 4
+		NOP						; 2
+		NOP						; 2
+		JMP play_loop			; 3
+		
+@end:
 		
 .align 256,$FF
 		i=0
 lsr4ora30tbl:
 REPT 256
-		.BYTE (i>>4)|$F0
+		.BYTE (i>>4)|$30
 		i=i+1
 ENDR
 		

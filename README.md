@@ -11,7 +11,6 @@ Sega Genesis VGM Player for [NES EPSM](https://www.nesdev.org/wiki/Expansion_Por
 ## Notable missing features
 
 - VGM looping
-- SN76489 short noise mode
 
 ## Usage
 

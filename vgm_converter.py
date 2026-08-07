@@ -17,9 +17,11 @@ class VGMConverter:
         self.dac_old = -1
         self.reg27_old = -1
         self.noi_old = -1
+        self.pul_period_old = -1
+        self.pul_volume_old = -1
 
         # 클럭 변환 설정 (SN76489 -> YM2608 SSG)
-        self.sn_clock = 3579545
+        self.sn_clock = 315000000/88
         self.ssg_clock = 2000000*0.95880675
         # 주기(Period) 계산 비례 상수
         self.ssg_freq_ratio = (self.ssg_clock / self.sn_clock) * 2
@@ -48,8 +50,8 @@ class VGMConverter:
         
     def handle_dacwrite(self, dacval):
         actual_dac_val = dacval>>1
-        if actual_dac_val < 0x04:
-            actual_dac_val = 0x04
+        if actual_dac_val < 0x05:
+            actual_dac_val = 0x05
             
         if actual_dac_val != self.dac_old:
             self.emit_cmd(actual_dac_val)
@@ -67,14 +69,20 @@ class VGMConverter:
         if wbyte != self.noi_old:
             self.emit_cmd(0x02, wbyte)
             self.noi_old = wbyte
-            self.delay_acc+=55
+            self.delay_acc+=60
+            
+    def write_pul(self, period, vol):
+        periodcalc = period
+        while periodcalc > 0x7FF: periodcalc/=2
+        periodcalc = int(periodcalc)-1
 
-    # def write_ssg_freq(self, ssg_ch, period):
-        # """12비트 SSG 주파수를 2개의 레지스터에 기록"""
-        # fine = period & 0xFF
-        # coarse = (period >> 8) & 0x0F
-        # self.write_ssg(ssg_ch * 2, fine)
-        # self.write_ssg(ssg_ch * 2 + 1, coarse)
+        volumecalc = int(vol)&0x0F
+
+        if (periodcalc != self.pul_period_old) or (volumecalc != self.pul_volume_old):
+            self.emit_cmd(0x03, (volumecalc<<4)|((periodcalc>>8)&0x07)|0x08, periodcalc&0xFF)
+            self.pul_period_old = periodcalc
+            self.pul_volume_old = volumecalc
+            self.delay_acc+=90
 
     def handle_delay(self, samples):
         """샘플 수를 사이클로 변환 및 오차 피드백 처리"""
@@ -137,17 +145,28 @@ class VGMConverter:
         self.write_ssg(5, freq_c>>8)
 
         noise_ctrl = self.sn_regs[6] & 0x03
-        if   noise_ctrl == 0: noise_period = 0x9
-        elif noise_ctrl == 1: noise_period = 0xB
-        elif noise_ctrl == 2: noise_period = 0xD
-        else:                 noise_period = freq_c>>6
-        self.write_noi(noise_period, noise_vol*0.8)
+        shortnoise = not (self.sn_regs[6] & 0x04)
         
-        mixer = 0b00111000        
+        if shortnoise:
+            if   noise_ctrl == 0: noise_period = 229
+            elif noise_ctrl == 1: noise_period = 458
+            elif noise_ctrl == 2: noise_period = 916
+            else:                 noise_period = ((self.sn_regs[4])<<4)*0.95880675
+            self.write_pul(noise_period, noise_vol)
+            self.write_noi(0,0)
+        else:
+            if   noise_ctrl == 0: noise_period = 0x9
+            elif noise_ctrl == 1: noise_period = 0xB
+            elif noise_ctrl == 2: noise_period = 0xD
+            else:                 noise_period = freq_c>>6
+            self.write_noi(noise_period, noise_vol*0.8)
+            self.write_pul(0,0)
+        
+        mixer = 0b00111000 # enable tones only   
         # disable channel completely when vol = 0 for PCM
         if freq_a < 4: mixer |= 0b00001001
         if freq_b < 4: mixer |= 0b00010010
-        if (freq_c < 4) and (noise_vol == 0): mixer |= 0b00100100
+        if freq_c < 4: mixer |= 0b00100100
 
         self.write_ssg(7, mixer)
         self.write_ssg(8, ay_vol_a)

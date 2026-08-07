@@ -9,4 +9,4 @@
 *.nes
 *.mlb
 *.exe
-ignore\
+ignore*
