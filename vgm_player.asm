@@ -15,6 +15,7 @@
 enum 0
 		data_ptr: .dsb 3
 		wait_msb: .dsb 1
+		zp0fbyte: .dsb 1
 ende
 
 ; ======================================================================================================
@@ -124,6 +125,11 @@ RESET:	LDX #0
 		LDA #$80
 		STA $401D
 		STA data_ptr+1
+		LDA #$08
+		STA $4015
+		LDA #$0F
+		STA zp0fbyte
+		STA $400F
 		
 		STY $8000
 		
@@ -149,7 +155,8 @@ ENDM
 
 .align 256,$FF
 		; 55 cycles per $00/$01 commands
-		; 40 cycles per $03-$7F commands
+		; 55 cycles per $02 command
+		; 40 cycles per $04-$7F commands
 		; $80-$FF = wait for `(param-128)*5+25` cycles
 play_loop:
 		LAX (data_ptr),Y		; 5
@@ -170,11 +177,11 @@ play_loop:
 		BCC @ym1
 		BEQ @ym2				; 2
 
-		CMP #2					; 2+2
-		BEQ @end
+		CMP #3					; 2+2
+		BCC @noi
+		BEQ @end				; 2
 		
 		NOP						; 2+2
-		NOP						; 2
 		NOP						; 2
 
 		STA $4011				; 2+4
@@ -198,6 +205,23 @@ play_loop:
 		INY_check
 		STA $401F
 		JMP play_loop
+		
+@noi:	LAX (data_ptr),Y
+		INY_check
+		LDA lsr4ora30tbl,X
+		STA $400C
+		TXA
+		AND zp0fbyte
+		STA $400E
+		JMP play_loop
+		
+.align 256,$FF
+		i=0
+lsr4ora30tbl:
+REPT 256
+		.BYTE (i>>4)|$F0
+		i=i+1
+ENDR
 		
 .pad $FFFC,$FF
 		.WORD RESET

@@ -16,6 +16,7 @@ class VGMConverter:
         
         self.dac_old = -1
         self.reg27_old = -1
+        self.noi_old = -1
 
         # 클럭 변환 설정 (SN76489 -> YM2608 SSG)
         self.sn_clock = 3579545
@@ -47,8 +48,8 @@ class VGMConverter:
         
     def handle_dacwrite(self, dacval):
         actual_dac_val = dacval>>1
-        if actual_dac_val < 0x03:
-            actual_dac_val = 0x03
+        if actual_dac_val < 0x04:
+            actual_dac_val = 0x04
             
         if actual_dac_val != self.dac_old:
             self.emit_cmd(actual_dac_val)
@@ -60,6 +61,13 @@ class VGMConverter:
         if self.ssg_cache[reg] != val:
             self.write_ym(reg, val, 0)
             self.ssg_cache[reg] = val
+            
+    def write_noi(self, period, vol):
+        wbyte = ((int(vol)&0x0F)<<4)|(int(period)&0x0F)
+        if wbyte != self.noi_old:
+            self.emit_cmd(0x02, wbyte)
+            self.noi_old = wbyte
+            self.delay_acc+=55
 
     # def write_ssg_freq(self, ssg_ch, period):
         # """12비트 SSG 주파수를 2개의 레지스터에 기록"""
@@ -114,8 +122,8 @@ class VGMConverter:
 
         ay_vol_a = SN_TO_AY_VOLUME[self.sn_regs[1]]
         ay_vol_b = SN_TO_AY_VOLUME[self.sn_regs[3]]
-        ay_vol_c_tone = SN_TO_AY_VOLUME[self.sn_regs[5]]
-        noise_vol = SN_TO_AY_VOLUME[self.sn_regs[7]]
+        ay_vol_c = SN_TO_AY_VOLUME[self.sn_regs[5]]
+        noise_vol = 15 - self.sn_regs[7]#SN_TO_AY_VOLUME[self.sn_regs[7]]
 
         freq_a = int(self.sn_regs[0] * self.ssg_freq_ratio)
         freq_b = int(self.sn_regs[2] * self.ssg_freq_ratio)
@@ -128,22 +136,15 @@ class VGMConverter:
         self.write_ssg(4, freq_c&0xFF)
         self.write_ssg(5, freq_c>>8)
 
-        if noise_vol == 0: # 노이즈 볼륨이 0(무음)이면 사각파 3개 전부 활성화
-            mixer = 0b00111000 # Tones(A,B,C) Enable(0), Noise(A,B,C) Disable(1)
-            vol_c = ay_vol_c_tone
-        else: # 노이즈 볼륨이 0이 아니면 채널 C를 노이즈 채널로 사용
-            mixer = 0b00011100 # Tone(A,B) Enable, Tone(C) Disable(1), Noise(C) Enable(0)
-            vol_c = noise_vol
-            
-            # SN76489 노이즈 속도를 SSG 노이즈 주파수(0~31)로 대략적 맵핑
-            noise_ctrl = self.sn_regs[6] & 0x03
-            if noise_ctrl == 0: ay_noise_freq = 0x04
-            elif noise_ctrl == 1: ay_noise_freq = 0x08
-            elif noise_ctrl == 2: ay_noise_freq = 0x10
-            else: ay_noise_freq = max(1, (freq_c >> 4) & 0x1F) 
-            self.write_ssg(6, ay_noise_freq)
-            
-            # disable channel completely when vol = 0 for PCM
+        noise_ctrl = self.sn_regs[6] & 0x03
+        if   noise_ctrl == 0: noise_period = 0x9
+        elif noise_ctrl == 1: noise_period = 0xB
+        elif noise_ctrl == 2: noise_period = 0xD
+        else:                 noise_period = freq_c>>6
+        self.write_noi(noise_period, noise_vol*0.8)
+        
+        mixer = 0b00111000        
+        # disable channel completely when vol = 0 for PCM
         if freq_a < 4: mixer |= 0b00001001
         if freq_b < 4: mixer |= 0b00010010
         if (freq_c < 4) and (noise_vol == 0): mixer |= 0b00100100
@@ -151,7 +152,7 @@ class VGMConverter:
         self.write_ssg(7, mixer)
         self.write_ssg(8, ay_vol_a)
         self.write_ssg(9, ay_vol_b)
-        self.write_ssg(10, vol_c)
+        self.write_ssg(10,ay_vol_c)
 
     def convert(self):
         with open(self.in_file, 'rb') as f:
