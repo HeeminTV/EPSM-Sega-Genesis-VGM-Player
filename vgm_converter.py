@@ -6,13 +6,11 @@ class VGMConverter:
     def __init__(self, in_file, out_file):
         self.in_file = in_file
         self.out_file = out_file
-        
-        # 딜레이 변환 설정
-        # 1.79MHz / 5 cycles per loop = 357954.4 Hz
-        self.delay_ratio = ((315000000/176)/5) / 44100
-        self.error_acc = 0.0  # 오차 피드백 누산기
 
-        self.delay_acc = 0
+        self.delay_ratio = ((315000000/176)/5) / 44100
+        self.error_acc = 0.0
+
+        self.delay_acc = 0 # delay per commands
         
         self.dac_old = -1
         self.reg27_old = -1
@@ -50,8 +48,8 @@ class VGMConverter:
         
     def handle_dacwrite(self, dacval):
         actual_dac_val = dacval>>1
-        if actual_dac_val < 0x05:
-            actual_dac_val = 0x05
+        if actual_dac_val < 0x06:
+            actual_dac_val = 0x06
             
         if actual_dac_val != self.dac_old:
             self.emit_cmd(actual_dac_val)
@@ -82,7 +80,7 @@ class VGMConverter:
             self.emit_cmd(0x03, (volumecalc<<4)|((periodcalc>>8)&0x07)|0x08, periodcalc&0xFF)
             self.pul_period_old = periodcalc
             self.pul_volume_old = volumecalc
-            self.delay_acc+=90
+            self.delay_acc+=85
 
     def handle_delay(self, samples):
         """샘플 수를 사이클로 변환 및 오차 피드백 처리"""
@@ -103,6 +101,10 @@ class VGMConverter:
         if ticks_to_wait < 5:
             self.error_acc += ticks_to_wait
             return
+            
+        while ticks_to_wait >= 16896:
+            self.emit_cmd(0x05)
+            ticks_to_wait -= 16896
 
         # 4. 5틱 이상 기다려야 한다면 루프를 돌며 쪼개서 기록
         while ticks_to_wait >= 5:
@@ -152,7 +154,7 @@ class VGMConverter:
             elif noise_ctrl == 1: noise_period = 458
             elif noise_ctrl == 2: noise_period = 916
             else:                 noise_period = ((self.sn_regs[4])<<4)*0.95880675
-            self.write_pul(noise_period, noise_vol)
+            self.write_pul(noise_period, noise_vol*0.8)
             self.write_noi(0,0)
         else:
             if   noise_ctrl == 0: noise_period = 0x9

@@ -14,8 +14,6 @@
 
 enum 0
 		data_ptr: .dsb 3
-		wait_msb: .dsb 1
-		zp07byte: .dsb 1
 		msbprev: .dsb 1
 ende
 
@@ -120,19 +118,16 @@ RESET:	LDX #0
 
 		STY data_ptr+0
 		STY data_ptr+2
-		
-		STY msbprev
 	
 		LDA #$29
 		STA $401C
+		STA $4015
+		STA $4001
+		STA $400F
 		LDA #$80
 		STA $401D
 		STA data_ptr+1
-		LDA #$09
-		STA $4015
-		STA $400F
-		LDA #$07
-		STA zp07byte
+		STA msbprev
 		
 		STY $8000
 		
@@ -157,10 +152,11 @@ MACRO INY_check
 ENDM
 
 .align 256,$FF
-		; 55 cycles per $00/$01 commands
-		; 60 cycles per $02 command
-		; 90 cycles per $03 command
-		; 40 cycles per $05-$7F commands
+		; 55 cycles per $00/$01 commands (YM A/B write)
+		; 60 cycles per $02 command (2A03 noise write)
+		; 85 cycles per $03 command (2A03 pulse write)
+		; 40 cycles per $06-$7F commands (DAC write)
+		; $05 = wait for 16896*5 cycles
 		; $80-$FF = wait for `(param-128)*5+25` cycles
 		
 play_loop:
@@ -175,10 +171,10 @@ play_loop:
 		BPL play_loop ; always
 
 @regwrites:
-		NOP						; 3+2
-		NOP						; 2
-		INY_check				; 5
-		CMP #1					; 2
+		INY_check				; 3+5
+		CMP #5					; 2
+		BEQ @d30k_j
+		CMP #1					; 2+2
 		BCC @ym1
 		BEQ @ym2				; 2
 
@@ -192,9 +188,10 @@ play_loop:
 		STA $4011				; 2+4
 		BNE play_loop ; always	; 3
 		
-@noi_j:	JMP @noi
-@pul_j: JMP @pul
-@end_j:	JMP @end
+@d30k_j:JMP @d30k				; 3+3
+@noi_j:	JMP @noi				; 3+3
+@pul_j: JMP @pul				; 3+3
+@end_j:	JMP @end				; 3+3
 		
 @ym1:	NOP
 		LDA (data_ptr),Y
@@ -213,7 +210,19 @@ play_loop:
 		STA $401F
 		JMP play_loop
 		
-@noi:	LAX (data_ptr),Y
+@d30k:	TYA
+		LDY #66
+		LDX #197
+@wait:	DEX
+		BNE @wait
+		DEY
+		BNE @wait
+		TAY
+		JMP play_loop
+		
+@noi:	
+		; VVVVPPPP
+		LAX (data_ptr),Y
 		INY_check
 		LDA lsr4ora30tbl,X
 		STA $400C
@@ -228,7 +237,7 @@ play_loop:
 		LAX (data_ptr),Y		; 5
 		INY_check				; 5
 		
-		AND zp07byte			; 3
+		AND #7					; 2
 		CMP msbprev				; 3
 		BEQ @same
 
@@ -247,8 +256,6 @@ play_loop:
 		LDA (data_ptr),Y		; 5
 		INY_check				; 5
 		STA $4002				; 4
-		NOP						; 2
-		NOP						; 2
 		JMP play_loop			; 3
 		
 @end:
