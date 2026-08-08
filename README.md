@@ -8,10 +8,6 @@ Sega Genesis VGM Player for [NES EPSM](https://www.nesdev.org/wiki/Expansion_Por
 - No clock drift
 - PCM
 
-## Notable missing features
-
-- VGM looping
-
 ## Usage
 
 1. Put [asm6f](https://github.com/freem/asm6f/releases/tag/v1.6_f03) into the same folder with source files.
