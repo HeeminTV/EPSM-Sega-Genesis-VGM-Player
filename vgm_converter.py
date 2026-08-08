@@ -19,6 +19,9 @@ class VGMConverter:
         self.pul_volume_old = -1
         self.regBx_old = [-1]*7
         self.regBx_2_old = [-1]*7
+        
+        self.current_output_pos = 0 # only used for detecting loop ptr
+        self.loop_offset = -1 # -1 = no loop.
 
         # 클럭 변환 설정 (SN76489 -> YM2608 SSG)
         self.sn_clock = 315000000/88
@@ -43,6 +46,7 @@ class VGMConverter:
     def emit_cmd(self, *bytes_vals):
         """명령어를 출력 버퍼에 추가"""
         self.out_data.extend(bytes_vals)
+        self.current_output_pos+=1
         
     def write_ym(self, reg, val, a1):
         self.emit_cmd(int(a1)&0x01, int(reg)&0xFF, int(val)&0xFF)
@@ -105,7 +109,7 @@ class VGMConverter:
             return
             
         while ticks_to_wait >= 16896:
-            self.emit_cmd(0x05)
+            self.emit_cmd(0x04)
             ticks_to_wait -= 16896
 
         # 4. 5틱 이상 기다려야 한다면 루프를 돌며 쪼개서 기록
@@ -188,9 +192,14 @@ class VGMConverter:
         # VGM 데이터 오프셋 추출
         data_offset = struct.unpack_from('<I', data, 0x34)[0]
         pos = 0x34 + data_offset if data_offset > 0 else 0x40
+        
+        loop_pos = struct.unpack_from('<I', data, 0x1C)[0]
+        if loop_pos == 0: loop_off = -1
+        else:             loop_off = loop_pos + 0x1C
 
         # 메인 파싱 루프
         while pos < len(data):
+            if pos == loop_off: self.loop_offset = self.current_output_pos
             cmd = data[pos]
             pos += 1
 
@@ -280,6 +289,8 @@ class VGMConverter:
                     pos += block_size
 
             elif cmd == 0x66: # End of sound data
+                if self.loop_offset == -1: self.emit_cmd(0x05, 0x00, 0x00)
+                else:                      self.emit_cmd(0x05, self.loop_offset&0xFF, ((self.loop_offset>>8)&0x3F)|0x80, self.loop_offset>>14)
                 break
 
             # 알려진 타 칩셋/길이 스킵(예외 처리)

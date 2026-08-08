@@ -155,8 +155,9 @@ ENDM
 		; 55 cycles per $00/$01 commands (YM A/B write)
 		; 60 cycles per $02 command (2A03 noise write)
 		; 85 cycles per $03 command (2A03 pulse write)
+		; $04 = wait for 16896*5 cycles
+		; $05 = loop / end
 		; 40 cycles per $06-$7F commands (DAC write)
-		; $05 = wait for 16896*5 cycles
 		; $80-$FF = wait for `(param-128)*5+25` cycles
 		
 play_loop:
@@ -172,7 +173,7 @@ play_loop:
 
 @regwrites:
 		INY_check				; 3+5
-		CMP #5					; 2
+		CMP #4					; 2
 		BEQ @d30k_j
 		CMP #1					; 2+2
 		BCC @ym1
@@ -182,7 +183,7 @@ play_loop:
 		BCC @noi_j
 		BEQ @pul_j				; 2
 		
-		CMP #4					; 2+2
+		CMP #5					; 2+2
 		BEQ @end_j
 
 		STA $4011				; 2+4
@@ -258,7 +259,23 @@ play_loop:
 		STA $4002				; 4
 		JMP play_loop			; 3
 		
-@end:
+@end:	LDA (data_ptr),Y ; lsb
+		INY_check
+		PHA
+		LAX (data_ptr),Y ; msb (0 means no loop)
+		BEQ @terminate
+		INY_check
+		PHA
+		LDA (data_ptr),Y ; bank
+		STA $8001
+		STA data_ptr+2
+		STX data_ptr+1
+		PLA
+		TAY
+		JMP play_loop
+		
+@terminate:	PLA
+@deathpool: JMP @deathpool
 		
 .align 256,$FF
 		i=0
