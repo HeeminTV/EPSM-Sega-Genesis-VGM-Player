@@ -1,7 +1,7 @@
 		HEX 4E 45 53 1A 00 00 28 0B 00 01 00 07 00 04 00 01
 		
 ; .base 0
-		incbin "test.bin"
+		incbin "test.bin", 0, 4177920
 ; .pad 2097152,$FF
 
 ; .base 0
@@ -22,7 +22,7 @@ ende
 .base $C000
 chr:	incbin "chr.chr"
 nam:	incbin "nam.nam"
-pal:	.BYTE $0F, $00, $10, $20
+pal:	.BYTE $0F, $0C, $1B, $28
 		.BYTE $0F, $0F, $0F, $0F
 		.BYTE $0F, $0F, $0F, $0F
 		.BYTE $0F, $0F, $0F, $0F

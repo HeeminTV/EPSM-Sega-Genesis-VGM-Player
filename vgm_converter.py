@@ -17,6 +17,8 @@ class VGMConverter:
         self.noi_old = -1
         self.pul_period_old = -1
         self.pul_volume_old = -1
+        self.regBx_old = [-1]*7
+        self.regBx_2_old = [-1]*7
 
         # 클럭 변환 설정 (SN76489 -> YM2608 SSG)
         self.sn_clock = 315000000/88
@@ -30,7 +32,7 @@ class VGMConverter:
         self.sn_latched_type = 0
         for i in [1, 3, 5, 7]: self.sn_regs[i] = 15 # 초기 볼륨은 모두 0 (Silence)
         
-        self.ssg_cache = [-1]*16 # SSG 중복 기록 방지용 캐시
+        self.ay_reg_old = [-1]*16 # SSG 중복 기록 방지용 캐시
         
         # PCM 데이터 관리
         self.pcm_data = bytearray()
@@ -58,9 +60,9 @@ class VGMConverter:
 
     def write_ssg(self, reg, val):
         """값이 변경되었을 때만 YM2608(0x00 포트)에 SSG 값 기록"""
-        if self.ssg_cache[reg] != val:
+        if self.ay_reg_old[reg] != val:
             self.write_ym(reg, val, 0)
-            self.ssg_cache[reg] = val
+            self.ay_reg_old[reg] = val
             
     def write_noi(self, period, vol):
         wbyte = ((int(vol)&0x0F)<<4)|(int(period)&0x0F)
@@ -216,18 +218,28 @@ class VGMConverter:
 
                 if aa == 0x2A:
                     self.handle_dacwrite(dd)
-                elif aa == 0x24 or aa == 0x25 or aa == 0x26 or aa == 0x29:
+                elif aa == 0x24 or aa == 0x25 or aa == 0x26 or aa == 0x29 or aa == 0x2B:
                     pass
                 elif aa == 0x27:
                     if (dd&0xC0) != (self.reg27_old&0xC0):
                         self.write_ym(0x27, dd&0xC0, 0)
                         self.reg27_old = dd
+                elif aa >= 0xB0 and aa <= 0xB6:
+                    if dd != self.regBx_old[aa-0xB0]:
+                        self.write_ym(aa, dd, 0)
+                        self.regBx_old[aa-0xB0] = dd
                 else:
                     self.write_ym(aa, dd, 0)
 
             elif cmd == 0x53: # YM2612 Port 1 Write
                 aa = data[pos]; dd = data[pos+1]; pos += 2
-                self.write_ym(aa, dd, 1)
+                
+                if aa >= 0xB0 and aa <= 0xB6:
+                    if dd != self.regBx_2_old[aa-0xB0]:
+                        self.write_ym(aa, dd, 1)
+                        self.regBx_2_old[aa-0xB0] = dd
+                else:
+                    self.write_ym(aa, dd, 1)
 
             elif cmd == 0x61: # Wait n samples
                 samples = struct.unpack_from('<H', data, pos)[0]
